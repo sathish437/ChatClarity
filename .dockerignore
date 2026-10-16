@@ -1,0 +1,55 @@
+# Root-context build ignores. Required build inputs (client/package.json,
+# client/package-lock.json, client/src, server/pom.xml, server/src,
+# committed .env.example templates) are NOT excluded.
+
+# Version control and CI metadata.
+.git/
+.gitattributes
+.github/
+
+# Build outputs — recreated inside the image.
+target/
+server/target/
+client/dist/
+client/.vite/
+*.tsbuildinfo
+
+# Frontend dependencies — reinstalled via `npm ci` in the image.
+node_modules/
+client/node_modules/
+
+# Local secrets and machine-specific config. Committed templates stay in context.
+.env
+.env.*
+!.env.example
+application-local.properties
+application-*.local.properties
+application-secret.properties
+application-secrets.properties
+application-private.properties
+credentials.json
+credentials-*.json
+google-credentials*.json
+*-service-account.json
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+# IDE and editor files.
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+.classpath
+.project
+.settings/
+*.code-workspace
+
+# OS artefacts and logs.
+.DS_Store
+Thumbs.db
+*.log
+logs/
