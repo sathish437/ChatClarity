@@ -1,0 +1,44 @@
+# Build output — recreated inside the image by `mvn package`.
+target/
+
+# Version control and CI metadata (not needed for the Maven build).
+.git/
+.gitattributes
+.github/
+
+# Local secrets and machine-specific config. The committed template
+# (.env.example) IS sent as build context; real values stay out.
+.env
+.env.*
+!.env.example
+application-local.properties
+application-*.local.properties
+application-secret.properties
+application-secrets.properties
+application-private.properties
+credentials.json
+credentials-*.json
+google-credentials*.json
+*-service-account.json
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+# IDE and editor files.
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+.classpath
+.project
+.settings/
+*.code-workspace
+
+# OS artefacts and logs.
+.DS_Store
+Thumbs.db
+*.log
+logs/

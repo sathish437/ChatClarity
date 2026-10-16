@@ -32,5 +32,29 @@ build/
 ### VS Code ###
 .vscode/
 
-# Environment variables
+# Local environment files; keep the committed example template.
 .env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+
+# Local-only Spring configuration and credentials.
+application-local.properties
+application-*.local.properties
+application-secret.properties
+application-secrets.properties
+application-private.properties
+application-secret.yml
+application-secrets.yml
+application-private.yml
+credentials.json
+credentials-*.json
+google-credentials*.json
+*-service-account.json
+*-service-account-*.json
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore

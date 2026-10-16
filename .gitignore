@@ -1,0 +1,40 @@
+# Local environment files; keep checked-in templates visible.
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+
+# Machine-specific Spring configuration.
+application-local.properties
+application-*.local.properties
+application-local.yml
+application-local.yaml
+application-secret.properties
+application-secrets.properties
+application-private.properties
+application-secret.yml
+application-secrets.yml
+application-private.yml
+application-secret.yaml
+application-secrets.yaml
+application-private.yaml
+
+# Local service-account credentials and private keys.
+credentials.json
+credentials-*.json
+google-credentials*.json
+*-service-account.json
+*-service-account-*.json
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+# Generated build and frontend cache output.
+target/
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
