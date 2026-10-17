@@ -2,6 +2,7 @@ package com.example.chat;
 
 import com.example.chat.controller.AiController;
 import com.example.chat.dto.DynamicAnswer;
+import com.example.chat.service.ChatBranchService;
 import com.example.chat.service.ChatHistoryService;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -44,6 +45,9 @@ class AiControllerStructuredOutputTest {
 
     @MockitoBean
     private ChatHistoryService chatHistoryService;
+
+    @MockitoBean
+    private ChatBranchService chatBranchService;
 
     private ChatClient.ChatClientRequestSpec requestSpec;
     private ChatClient.CallResponseSpec callResponseSpec;
@@ -91,7 +95,47 @@ class AiControllerStructuredOutputTest {
                         .content("{\"message\":\"hello\"}"))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.message")
-                        .value("AI service rate limit or quota is exhausted. Please try again later."));
+                        .value("AI service returned a rate limit response. Please try again later."));
+
+        verify(chatClient, times(1)).prompt();
+        verify(callResponseSpec, never()).content();
+    }
+
+    @Test
+    void transientRateLimitReturnsHighDemandMessage() throws Exception {
+        String providerDetail = "Quota exceeded for metric. Details: "
+                + "{\"@type\":\"type.googleapis.com/google.rpc.RetryInfo\",\"retryDelay\":\"5s\"}";
+        RuntimeException transientFailure = new RuntimeException("Failed to generate content",
+                new ClientException(429, "RESOURCE_EXHAUSTED", providerDetail));
+        when(callResponseSpec.entity(eq(DynamicAnswer.class))).thenThrow(transientFailure);
+
+        mockMvc.perform(post("/api/ai/ask")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"hello\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.message")
+                        .value("The AI service is handling high demand right now. Please wait a moment and try again."));
+
+        verify(chatClient, times(1)).prompt();
+        verify(callResponseSpec, never()).content();
+    }
+
+    @Test
+    void dailyQuotaWithRetryDelayDoesNotReturnTransientHighDemandMessage() throws Exception {
+        String providerDetail = "Daily request limit exceeded. Details: "
+                + "[{\"@type\":\"type.googleapis.com/google.rpc.QuotaFailure\","
+                + "\"violations\":[{\"subject\":\"GenerateRequestsPerDay\"}]},"
+                + "{\"@type\":\"type.googleapis.com/google.rpc.RetryInfo\",\"retryDelay\":\"5s\"}]";
+        RuntimeException dailyQuotaFailure = new RuntimeException("Failed to generate content",
+                new ClientException(429, "RESOURCE_EXHAUSTED", providerDetail));
+        when(callResponseSpec.entity(eq(DynamicAnswer.class))).thenThrow(dailyQuotaFailure);
+
+        mockMvc.perform(post("/api/ai/ask")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"hello\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.message")
+                        .value("AI service returned a rate limit response. Please try again later."));
 
         verify(chatClient, times(1)).prompt();
         verify(callResponseSpec, never()).content();

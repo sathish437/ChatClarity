@@ -2,6 +2,7 @@ package com.example.chat;
 
 import com.example.chat.controller.AiController;
 import com.example.chat.dto.DynamicAnswer;
+import com.example.chat.service.ChatBranchService;
 import com.example.chat.service.ChatHistoryService;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -43,6 +44,9 @@ class AiControllerDynamicAnswerTest {
 
     @MockitoBean
     private ChatHistoryService chatHistoryService;
+
+    @MockitoBean
+    private ChatBranchService chatBranchService;
 
     private ChatClient.ChatClientRequestSpec requestSpec;
     private ChatClient.CallResponseSpec callResponseSpec;

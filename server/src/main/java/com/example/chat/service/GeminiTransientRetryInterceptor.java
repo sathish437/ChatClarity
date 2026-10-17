@@ -6,9 +6,8 @@ import java.time.Instant;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import okhttp3.Interceptor;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -22,8 +21,6 @@ public final class GeminiTransientRetryInterceptor implements Interceptor {
     private static final long INITIAL_BACKOFF_MILLIS = 1_000;
     private static final long MAX_BACKOFF_MILLIS = 8_000;
     private static final Duration MAX_PROVIDER_DELAY = Duration.ofSeconds(30);
-    private static final Pattern RETRY_DELAY = Pattern.compile(
-            "\"retryDelay\"\\s*:\\s*\"([0-9]+(?:\\.[0-9]+)?)s\"");
 
     private final Sleeper sleeper;
 
@@ -40,12 +37,19 @@ public final class GeminiTransientRetryInterceptor implements Interceptor {
         Request request = chain.request();
         for (int attempt = 1; ; attempt++) {
             Response response = chain.proceed(request);
-            if (!isRetryableStatus(response.code()) || attempt >= MAX_ATTEMPTS) {
+            GeminiProviderError providerError = response.code() == 429 ? providerError(response) : null;
+            if (attempt >= MAX_ATTEMPTS || !isRetryable(response, providerError)) {
+                if (response.code() == 429) {
+                    logQuotaDetails(response, providerError);
+                }
                 return response;
             }
 
-            Duration delay = retryDelay(response, attempt);
+            Duration delay = retryDelay(response, attempt, providerError);
             if (delay.compareTo(MAX_PROVIDER_DELAY) > 0) {
+                if (response.code() == 429) {
+                    logQuotaDetails(response, providerError);
+                }
                 log.warn("Gemini transient failure requested a delay above the configured limit; returning without retry.");
                 return response;
             }
@@ -56,27 +60,82 @@ public final class GeminiTransientRetryInterceptor implements Interceptor {
                 sleeper.sleep(delay);
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
+                if (response.code() == 429) {
+                    logQuotaDetails(response, providerError);
+                }
                 return response;
             }
             response.close();
         }
     }
 
-    private static boolean isRetryableStatus(int status) {
-        return status == 408 || status == 500 || status == 502 || status == 503 || status == 504;
+    private static boolean isRetryable(Response response, GeminiProviderError providerError) {
+        int status = response.code();
+        if (status == 408 || status == 500 || status == 502 || status == 503 || status == 504) {
+            return true;
+        }
+        return status == 429
+                && providerError != null
+                && !providerError.permanentQuotaOrBillingFailure()
+                && hasTransientRetrySignal(response, providerError);
     }
 
-    private static Duration retryDelay(Response response, int attempt) throws IOException {
+    private static boolean hasTransientRetrySignal(Response response, GeminiProviderError providerError) {
+        Duration headerDelay = parseRetryAfter(response.header("Retry-After"));
+        if (headerDelay != null) {
+            return headerDelay.compareTo(MAX_PROVIDER_DELAY) <= 0;
+        }
+        Duration bodyDelay = providerError.retryDelay();
+        return bodyDelay != null && bodyDelay.compareTo(MAX_PROVIDER_DELAY) <= 0;
+    }
+
+    private static GeminiProviderError providerError(Response response) throws IOException {
+        String body = response.body() == null ? "" : response.peekBody(64 * 1024).string();
+        return GeminiProviderError.parse(body);
+    }
+
+    private static void logQuotaDetails(Response response, GeminiProviderError providerError) {
+        Duration retryDelay = parseRetryAfter(response.header("Retry-After"));
+        if (retryDelay == null) {
+            retryDelay = providerError.retryDelay();
+        }
+        log.warn("Gemini HTTP 429. classification={} providerCode={} providerStatus={} providerMessage={} "
+                        + "quotaReason={} quotaViolations={} retryDelayMs={}",
+                providerError.classification(),
+                providerError.code() == null ? "unknown" : providerError.code(),
+                safeLogValue(providerError.status()),
+                safeLogValue(providerError.message()),
+                safeLogValue(providerError.reason()),
+                safeQuotaViolations(providerError.quotaViolations()),
+                retryDelay == null ? "none" : retryDelay.toMillis());
+    }
+
+    private static String safeQuotaViolations(List<GeminiProviderError.QuotaViolation> violations) {
+        return violations.stream()
+                .limit(3)
+                .map(violation -> "subject=" + safeLogValue(violation.subject())
+                        + ",description=" + safeLogValue(violation.description()))
+                .toList()
+                .toString();
+    }
+
+    private static String safeLogValue(String value) {
+        if (value == null || value.isBlank()) {
+            return "unknown";
+        }
+        String sanitized = value
+                .replaceAll("(?i)AIza[0-9A-Za-z_-]{20,}", "[REDACTED]")
+                .replaceAll("(?i)Bearer\\s+\\S+", "Bearer [REDACTED]")
+                .replaceAll("[\\r\\n\\t]+", " ")
+                .replaceAll("\\s{2,}", " ")
+                .trim();
+        return sanitized.length() > 240 ? sanitized.substring(0, 240) + "..." : sanitized;
+    }
+
+    private static Duration retryDelay(Response response, int attempt, GeminiProviderError providerError) {
         Duration providerDelay = parseRetryAfter(response.header("Retry-After"));
-        if (providerDelay == null && response.body() != null) {
-            Matcher matcher = RETRY_DELAY.matcher(response.peekBody(64 * 1024).string());
-            if (matcher.find()) {
-                try {
-                    providerDelay = Duration.ofMillis((long) (Double.parseDouble(matcher.group(1)) * 1000));
-                } catch (NumberFormatException ignored) {
-                    providerDelay = null;
-                }
-            }
+        if (providerDelay == null && providerError != null) {
+            providerDelay = providerError.retryDelay();
         }
         if (providerDelay != null) {
             return providerDelay;

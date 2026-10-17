@@ -1,4 +1,8 @@
-import type { AssistantAnswer, ChatTurnRequest } from "../types/chat";
+import type {
+  AssistantAnswer,
+  ChatTurnRequest,
+  EditTurnRequest,
+} from "../types/chat";
 
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
 
@@ -102,10 +106,25 @@ export function errorMessage(error: unknown): string {
 
 export async function askAssistant(message: string): Promise<AssistantAnswer> {
   const request: ChatTurnRequest = { message };
+  return postTurn("/api/ai/ask", request);
+}
+
+export async function editAssistantMessage(
+  message: string,
+  keepExchanges: number,
+): Promise<AssistantAnswer> {
+  const request: EditTurnRequest = { message, keepExchanges };
+  return postTurn("/api/ai/edit", request);
+}
+
+async function postTurn(
+  path: string,
+  request: ChatTurnRequest | EditTurnRequest,
+): Promise<AssistantAnswer> {
   let response: Response;
 
   try {
-    response = await fetch(`${apiBaseUrl}/api/ai/ask`, {
+    response = await fetch(`${apiBaseUrl}${path}`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },

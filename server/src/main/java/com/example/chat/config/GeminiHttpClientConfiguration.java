@@ -8,6 +8,7 @@ import com.google.genai.types.HttpRetryOptions;
 import com.google.auth.oauth2.GoogleCredentials;
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.Duration;
 import java.util.List;
 import org.springframework.ai.model.google.genai.autoconfigure.chat.GoogleGenAiConnectionProperties;
 import org.springframework.context.annotation.Bean;
@@ -18,6 +19,11 @@ import org.springframework.util.StringUtils;
 @Configuration
 public class GeminiHttpClientConfiguration {
 
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(15);
+    private static final Duration READ_TIMEOUT = Duration.ofSeconds(60);
+    private static final Duration WRITE_TIMEOUT = Duration.ofSeconds(30);
+    private static final Duration CALL_TIMEOUT = Duration.ofSeconds(90);
+
     @Bean
     Client googleGenAiClient(GoogleGenAiConnectionProperties connectionProperties) throws IOException {
         HttpRetryOptions retryOptions = HttpRetryOptions.builder()
@@ -27,10 +33,15 @@ public class GeminiHttpClientConfiguration {
 
         HttpOptions httpOptions = HttpOptions.builder()
                 .retryOptions(retryOptions)
+                .timeout((int) CALL_TIMEOUT.toMillis())
                 .build();
 
         ClientOptions clientOptions = ClientOptions.builder()
                 .customHttpClient(new okhttp3.OkHttpClient.Builder()
+                        .connectTimeout(CONNECT_TIMEOUT)
+                        .readTimeout(READ_TIMEOUT)
+                        .writeTimeout(WRITE_TIMEOUT)
+                        .callTimeout(CALL_TIMEOUT)
                         .addInterceptor(new GeminiTransientRetryInterceptor())
                         .build())
                 .build();

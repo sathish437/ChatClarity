@@ -1,5 +1,6 @@
 package com.example.chat;
 
+import com.example.chat.service.ChatBranchService;
 import com.example.chat.service.ChatHistoryService;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -12,6 +13,10 @@ class ChatApplicationTests {
 	// so the context still loads without a database.
 	@MockitoBean
 	ChatHistoryService chatHistoryService;
+
+	// Same exclusion applies to the branch-truncation service used by /api/ai/edit.
+	@MockitoBean
+	ChatBranchService chatBranchService;
 
 	@Test
 	void contextLoads() {

@@ -3,10 +3,11 @@ import {
   Clipboard,
   Code2,
   CornerDownRight,
+  Pencil,
   Sparkles,
   UserRound,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AssistantAnswer, ChatMessage as ChatMessageType } from "../types/chat";
 import {
   getCodeExamples,
@@ -20,6 +21,11 @@ import {
 interface ChatMessageProps {
   message: ChatMessageType;
   onFollowUp: (question: string) => void;
+  editing?: boolean;
+  isBusy?: boolean;
+  onStartEdit?: () => void;
+  onCancelEdit?: () => void;
+  onSaveEdit?: (text: string) => void;
 }
 
 function toCopyText(answer: AssistantAnswer): string {
@@ -39,7 +45,77 @@ function toCopyText(answer: AssistantAnswer): string {
   return parts.filter(Boolean).join("\n\n");
 }
 
-export function ChatMessage({ message, onFollowUp }: ChatMessageProps) {
+function UserMessageEditor({
+  initial,
+  onCancel,
+  onSave,
+}: {
+  initial: string;
+  onCancel: () => void;
+  onSave: (text: string) => void;
+}) {
+  const [value, setValue] = useState(initial);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.focus();
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`;
+  }, [value]);
+
+  function save() {
+    if (value.trim()) onSave(value);
+  }
+
+  return (
+    <div className="user-edit">
+      <textarea
+        aria-label="Edit message"
+        autoComplete="off"
+        maxLength={12000}
+        onChange={(event) => setValue(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+            event.preventDefault();
+            save();
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+          }
+        }}
+        ref={textareaRef}
+        rows={3}
+        value={value}
+      />
+      <div className="user-edit-actions">
+        <button className="edit-cancel" onClick={onCancel} type="button">
+          Cancel
+        </button>
+        <button
+          className="edit-save"
+          disabled={!value.trim()}
+          onClick={save}
+          type="button"
+        >
+          Save &amp; resend
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function ChatMessage({
+  message,
+  onFollowUp,
+  editing = false,
+  isBusy = false,
+  onStartEdit,
+  onCancelEdit,
+  onSaveEdit,
+}: ChatMessageProps) {
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
 
@@ -53,7 +129,30 @@ export function ChatMessage({ message, onFollowUp }: ChatMessageProps) {
           <div className="message-meta">
             <span>You</span>
           </div>
-          <p className="user-bubble">{message.content as string}</p>
+          {editing ? (
+            <UserMessageEditor
+              initial={message.content as string}
+              onCancel={onCancelEdit ?? (() => undefined)}
+              onSave={onSaveEdit ?? (() => undefined)}
+            />
+          ) : (
+            <>
+              <p className="user-bubble">{message.content as string}</p>
+              <div className="message-actions user-actions">
+                <button
+                  aria-label="Edit message"
+                  className="message-action edit-button"
+                  disabled={isBusy}
+                  onClick={onStartEdit}
+                  title="Edit and resend"
+                  type="button"
+                >
+                  <Pencil size={15} />
+                  <span>Edit</span>
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </article>
     );

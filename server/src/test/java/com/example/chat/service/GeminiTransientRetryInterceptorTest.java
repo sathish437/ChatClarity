@@ -38,7 +38,8 @@ class GeminiTransientRetryInterceptorTest {
         assertThat(response.code()).isEqualTo(503);
         verify(chain, times(3)).proceed(any(Request.class));
         assertThat(waits).hasSize(2);
-        assertThat(waits.get(1)).isGreaterThan(waits.get(0));
+        assertThat(waits.get(0)).isBetween(Duration.ofMillis(500), Duration.ofMillis(1500));
+        assertThat(waits.get(1)).isBetween(Duration.ofSeconds(1), Duration.ofSeconds(3));
         assertThat(waits).allSatisfy(delay -> assertThat(delay).isLessThanOrEqualTo(Duration.ofSeconds(8)));
     }
 
@@ -56,8 +57,118 @@ class GeminiTransientRetryInterceptorTest {
     }
 
     @Test
-    void doesNotRetry429QuotaOrRateLimitErrors() throws IOException {
+    void doesNotRetry429WithoutRetrySignal() throws IOException {
         Interceptor.Chain chain = chain(response(429));
+
+        Response response = interceptor.intercept(chain);
+
+        assertThat(response.code()).isEqualTo(429);
+        verify(chain, times(1)).proceed(any(Request.class));
+        assertThat(waits).isEmpty();
+    }
+
+    @Test
+    void retriesTransient429WithProviderRetryDelay() throws IOException {
+        Interceptor.Chain chain = chain(
+                responseWithBody(429, rateLimitBody("2s")),
+                response(200));
+
+        Response response = interceptor.intercept(chain);
+
+        assertThat(response.code()).isEqualTo(200);
+        verify(chain, times(2)).proceed(any(Request.class));
+        assertThat(waits).containsExactly(Duration.ofSeconds(2));
+    }
+
+    @Test
+    void retries429WithRetryAfterHeader() throws IOException {
+        Interceptor.Chain chain = chain(
+                response(429, "Retry-After", "2"),
+                response(200));
+
+        Response response = interceptor.intercept(chain);
+
+        assertThat(response.code()).isEqualTo(200);
+        verify(chain, times(2)).proceed(any(Request.class));
+        assertThat(waits).containsExactly(Duration.ofSeconds(2));
+    }
+
+    @Test
+    void stopsRetrying429AfterMaxAttempts() throws IOException {
+        Interceptor.Chain chain = chain(
+                responseWithBody(429, rateLimitBody("1s")),
+                responseWithBody(429, rateLimitBody("1s")),
+                responseWithBody(429, rateLimitBody("1s")),
+                responseWithBody(429, rateLimitBody("1s")));
+
+        Response response = interceptor.intercept(chain);
+
+        assertThat(response.code()).isEqualTo(429);
+        verify(chain, times(3)).proceed(any(Request.class));
+        assertThat(waits).hasSize(2);
+    }
+
+    @Test
+    void doesNotRetry429WhenProviderDelayExceedsConfiguredLimit() throws IOException {
+        Interceptor.Chain chain = chain(
+                responseWithBody(429, rateLimitBody("120s")),
+                response(200));
+
+        Response response = interceptor.intercept(chain);
+
+        assertThat(response.code()).isEqualTo(429);
+        verify(chain, times(1)).proceed(any(Request.class));
+        assertThat(waits).isEmpty();
+    }
+
+    @Test
+    void doesNotRetryDailyQuotaEvenWhenProviderReturnsRetryDelay() throws IOException {
+        Interceptor.Chain chain = chain(responseWithBody(429, dailyQuotaBody("5s")));
+
+        Response response = interceptor.intercept(chain);
+
+        assertThat(response.code()).isEqualTo(429);
+        verify(chain, times(1)).proceed(any(Request.class));
+        assertThat(waits).isEmpty();
+    }
+
+    @Test
+    void doesNotRetryBillingFailureEvenWhenProviderReturnsRetryDelay() throws IOException {
+        Interceptor.Chain chain = chain(responseWithBody(429, billingFailureBody("5s")));
+
+        Response response = interceptor.intercept(chain);
+
+        assertThat(response.code()).isEqualTo(429);
+        verify(chain, times(1)).proceed(any(Request.class));
+        assertThat(waits).isEmpty();
+    }
+
+    @Test
+    void doesNotRetryExplicitQuotaExhaustionEvenWhenProviderReturnsRetryDelay() throws IOException {
+        String body = "{\"error\":{\"code\":429,\"status\":\"RESOURCE_EXHAUSTED\","
+                + "\"details\":["
+                + "{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\","
+                + "\"reason\":\"QUOTA_EXCEEDED\"},"
+                + "{\"@type\":\"type.googleapis.com/google.rpc.RetryInfo\","
+                + "\"retryDelay\":\"5s\"}]}}";
+        Interceptor.Chain chain = chain(responseWithBody(429, body));
+
+        Response response = interceptor.intercept(chain);
+
+        assertThat(response.code()).isEqualTo(429);
+        verify(chain, times(1)).proceed(any(Request.class));
+        assertThat(waits).isEmpty();
+    }
+
+    @Test
+    void doesNotRetryProjectRestrictionEvenWhenProviderReturnsRetryDelay() throws IOException {
+        String body = "{\"error\":{\"code\":429,\"status\":\"RESOURCE_EXHAUSTED\","
+                + "\"details\":["
+                + "{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\","
+                + "\"reason\":\"SERVICE_DISABLED\"},"
+                + "{\"@type\":\"type.googleapis.com/google.rpc.RetryInfo\","
+                + "\"retryDelay\":\"5s\"}]}}";
+        Interceptor.Chain chain = chain(responseWithBody(429, body));
 
         Response response = interceptor.intercept(chain);
 
@@ -118,5 +229,41 @@ class GeminiTransientRetryInterceptorTest {
             builder.header(headerName, headerValue);
         }
         return builder.build();
+    }
+
+    private static Response responseWithBody(int code, String body) {
+        return new Response.Builder()
+                .request(request())
+                .protocol(Protocol.HTTP_1_1)
+                .code(code)
+                .message("Provider error")
+                .body(ResponseBody.create(body, MediaType.get("application/json")))
+                .build();
+    }
+
+    private static String rateLimitBody(String retryDelay) {
+        return "{\"error\":{\"code\":429,\"message\":\"Quota exceeded for metric.\","
+                + "\"status\":\"RESOURCE_EXHAUSTED\",\"details\":["
+                + "{\"@type\":\"type.googleapis.com/google.rpc.RetryInfo\","
+                + "\"retryDelay\":\"" + retryDelay + "\"}]}}";
+    }
+
+    private static String dailyQuotaBody(String retryDelay) {
+        return "{\"error\":{\"code\":429,\"message\":\"Daily request limit exceeded.\","
+                + "\"status\":\"RESOURCE_EXHAUSTED\",\"details\":["
+                + "{\"@type\":\"type.googleapis.com/google.rpc.QuotaFailure\","
+                + "\"violations\":[{\"subject\":\"project/quotas/GenerateRequestsPerDay\","
+                + "\"description\":\"Requests per day quota exceeded\"}]},"
+                + "{\"@type\":\"type.googleapis.com/google.rpc.RetryInfo\","
+                + "\"retryDelay\":\"" + retryDelay + "\"}]}}";
+    }
+
+    private static String billingFailureBody(String retryDelay) {
+        return "{\"error\":{\"code\":429,\"message\":\"Billing is disabled for this project.\","
+                + "\"status\":\"RESOURCE_EXHAUSTED\",\"details\":["
+                + "{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\","
+                + "\"reason\":\"BILLING_DISABLED\"},"
+                + "{\"@type\":\"type.googleapis.com/google.rpc.RetryInfo\","
+                + "\"retryDelay\":\"" + retryDelay + "\"}]}}";
     }
 }

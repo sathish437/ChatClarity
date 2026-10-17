@@ -11,7 +11,7 @@ import { ChatMessage } from "./components/ChatMessage";
 import { EmptyState } from "./components/EmptyState";
 import { MessageComposer } from "./components/MessageComposer";
 import { Sidebar } from "./components/Sidebar";
-import { askAssistant, errorMessage } from "./services/chatApi";
+import { askAssistant, editAssistantMessage, errorMessage } from "./services/chatApi";
 import type { ChatMessage as ChatMessageType } from "./types/chat";
 
 type Theme = "light" | "dark";
@@ -39,6 +39,7 @@ export default function App() {
   const [messages, setMessages] = useState<ChatMessageType[]>([]);
   const [draft, setDraft] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [theme, setTheme] = useState<Theme>(initialTheme);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -64,6 +65,7 @@ export default function App() {
     setIsLoading(true);
     setError(null);
     setDraft("");
+    setEditingId(null);
     setMessages((current) => [...current, createMessage("user", message)]);
 
     try {
@@ -77,11 +79,53 @@ export default function App() {
     }
   }, []);
 
+  const resendEditedMessage = useCallback(
+    async (id: string, rawText: string) => {
+      const text = rawText.trim();
+      if (!text || requestInProgress.current) return;
+
+      const index = messages.findIndex((entry) => entry.id === id);
+      if (index === -1 || messages[index].role !== "user") return;
+
+      // Completed backend exchanges before the edited message. Backend memory
+      // appends exactly one exchange per successful call, so visible assistant
+      // messages map 1:1 to stored exchanges. The /edit endpoint rewinds the
+      // backend to this point before answering the edited text.
+      const keepExchanges = messages
+        .slice(0, index)
+        .filter((entry) => entry.role === "assistant").length;
+
+      requestInProgress.current = true;
+      setIsLoading(true);
+      setError(null);
+      setEditingId(null);
+      setMessages((current) => [
+        ...current.slice(0, index),
+        createMessage("user", text),
+      ]);
+
+      try {
+        const answer = await editAssistantMessage(text, keepExchanges);
+        setMessages((current) => [
+          ...current,
+          createMessage("assistant", answer),
+        ]);
+      } catch (requestError) {
+        setError(errorMessage(requestError));
+      } finally {
+        requestInProgress.current = false;
+        setIsLoading(false);
+      }
+    },
+    [messages],
+  );
+
   function startNewChat() {
     if (messages.length > 0) setSessionNotice(true);
     setMessages([]);
     setDraft("");
     setError(null);
+    setEditingId(null);
     setSidebarOpen(false);
   }
 
@@ -146,6 +190,11 @@ export default function App() {
                   key={message.id}
                   message={message}
                   onFollowUp={sendMessage}
+                  editing={editingId === message.id}
+                  isBusy={isLoading}
+                  onStartEdit={() => setEditingId(message.id)}
+                  onCancelEdit={() => setEditingId(null)}
+                  onSaveEdit={(text) => void resendEditedMessage(message.id, text)}
                 />
               ))}
               {isLoading && (

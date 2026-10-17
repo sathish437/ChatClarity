@@ -68,6 +68,8 @@ textarea:focus-visible {
 .app-shell {
   display: flex;
   min-height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
 }
 
 .sidebar {
@@ -282,6 +284,8 @@ textarea:focus-visible {
   display: flex;
   min-width: 0;
   min-height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   flex: 1;
   flex-direction: column;
   margin-left: 264px;
@@ -605,6 +609,91 @@ textarea:focus-visible {
   line-height: 1.65;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.user-message .user-actions {
+  justify-content: flex-end;
+  min-height: 0;
+  margin-top: 6px;
+}
+
+.user-message .edit-button {
+  opacity: 1;
+}
+
+.user-message .edit-button:disabled {
+  opacity: 0.45;
+}
+
+.user-edit {
+  width: min(100%, 620px);
+  margin-top: 5px;
+}
+
+.user-edit textarea {
+  display: block;
+  width: 100%;
+  max-height: 180px;
+  resize: none;
+  padding: 11px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: 12px 4px 12px 12px;
+  outline: 0;
+  background: var(--surface);
+  color: var(--text-strong);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.user-edit textarea:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.user-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.edit-cancel,
+.edit-save {
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.edit-cancel {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.edit-cancel:hover {
+  background: var(--surface-muted);
+}
+
+.edit-save {
+  border: 0;
+  background: var(--accent);
+  color: #fff;
+}
+
+:root[data-theme="dark"] .edit-save {
+  color: #1b1c30;
+}
+
+.edit-save:hover:not(:disabled) {
+  background: var(--accent-dark);
+}
+
+.edit-save:disabled {
+  background: var(--surface-muted);
+  color: #aeb4c1;
+  cursor: not-allowed;
 }
 
 .answer-content {
@@ -1043,6 +1132,15 @@ textarea:focus-visible {
   .desktop-sidebar-toggle {
     display: none;
   }
+
+  .composer-area {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    background: var(--page);
+    border-top: 1px solid var(--border);
+    padding: 10px 18px calc(10px + env(safe-area-inset-bottom, 0px));
+  }
 }
 
 @media (max-width: 650px) {
@@ -1139,7 +1237,7 @@ textarea:focus-visible {
   }
 
   .composer-area {
-    padding: 8px 12px 12px;
+    padding: 8px 12px calc(10px + env(safe-area-inset-bottom, 0px));
   }
 
   .composer {

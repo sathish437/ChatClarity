@@ -29,3 +29,8 @@ export interface ChatMessage {
 export interface ChatTurnRequest {
   message: string;
 }
+
+export interface EditTurnRequest {
+  message: string;
+  keepExchanges: number;
+}
